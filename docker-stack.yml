@@ -1,0 +1,139 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Docker Swarm stack: nginx (API gateway) + Spring Boot (Java) + Laravel (PHP)
+# monitored by Datadog (metrics, APM traces, logs).
+#
+# Deploy:
+#   export DD_API_KEY=<your_key>   # or use deploy.sh which reads .env
+#   docker stack deploy -c docker-stack.yml nginx-demo
+#
+# Access:
+#   http://<host>/java/        → Spring Boot root
+#   http://<host>/java/work    → Spring Boot work endpoint
+#   http://<host>/php/         → Laravel root
+#   http://<host>/php/work     → Laravel work endpoint
+#   http://<host>/health       → nginx health probe
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Datadog Agent (one instance per Swarm node) ─────────────────────────────
+  datadog-agent:
+    image: wwongpai/datadog-agent:latest
+    environment:
+      DD_API_KEY: "${DD_API_KEY}"
+      DD_SITE: "datadoghq.com"
+      # Logs
+      DD_LOGS_ENABLED: "true"
+      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
+      # APM
+      DD_APM_ENABLED: "true"
+      DD_APM_NON_LOCAL_TRAFFIC: "true"
+      # DogStatsD (custom metrics)
+      DD_DOGSTATSD_NON_LOCAL_TRAFFIC: "true"
+      # Unified Service Tagging
+      DD_ENV: "demo"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /sys/fs/cgroup:/host/sys/fs/cgroup:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    configs:
+      - source: nginx_check_config
+        target: /etc/datadog-agent/conf.d/nginx.d/conf.yaml
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+    networks:
+      app-net:
+        aliases:
+          - datadog-agent
+
+  # ── nginx API Gateway (with Datadog nginx tracing module) ───────────────────
+  nginx-gateway:
+    image: wwongpai/nginx-datadog:latest
+    ports:
+      - "80:80"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    labels:
+      com.datadoghq.tags.service: "nginx-gateway"
+      com.datadoghq.tags.env: "demo"
+      com.datadoghq.tags.version: "1.0.0"
+      # Datadog autodiscovery: tag logs as source=nginx for the nginx log pipeline
+      com.datadoghq.ad.logs: '[{"source":"nginx","service":"nginx-gateway"}]'
+    networks:
+      app-net:
+        aliases:
+          - nginx-gateway
+
+  # ── Spring Boot (Java) App ──────────────────────────────────────────────────
+  springboot-app:
+    image: wwongpai/springboot-nginx-demo:latest
+    environment:
+      # Unified Service Tagging
+      DD_SERVICE: "springboot-app"
+      DD_ENV: "demo"
+      DD_VERSION: "1.0.0"
+      # APM
+      DD_LOGS_INJECTION: "true"
+      DD_TRACE_ENABLED: "true"
+      DD_AGENT_HOST: "datadog-agent"
+      DD_TRACE_AGENT_PORT: "8126"
+    labels:
+      com.datadoghq.tags.service: "springboot-app"
+      com.datadoghq.tags.env: "demo"
+      com.datadoghq.tags.version: "1.0.0"
+      com.datadoghq.ad.logs: '[{"source":"java","service":"springboot-app"}]'
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    networks:
+      app-net:
+        aliases:
+          - springboot-app
+
+  # ── Laravel (PHP) App ───────────────────────────────────────────────────────
+  laravel-app:
+    image: wwongpai/laravel-nginx-demo:latest
+    environment:
+      APP_ENV: "local"
+      APP_DEBUG: "true"
+      LOG_CHANNEL: "stderr"
+      # Unified Service Tagging
+      DD_SERVICE: "laravel-app"
+      DD_ENV: "demo"
+      DD_VERSION: "1.0.0"
+      # APM
+      DD_LOGS_INJECTION: "true"
+      DD_TRACE_ENABLED: "true"
+      DD_AGENT_HOST: "datadog-agent"
+      DD_TRACE_AGENT_PORT: "8126"
+    labels:
+      com.datadoghq.tags.service: "laravel-app"
+      com.datadoghq.tags.env: "demo"
+      com.datadoghq.tags.version: "1.0.0"
+      com.datadoghq.ad.logs: '[{"source":"php","service":"laravel-app"}]'
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    networks:
+      app-net:
+        aliases:
+          - laravel-app
+
+# ── Docker Swarm Configs (mounted into services at deploy time) ───────────────
+configs:
+  nginx_check_config:
+    file: ./datadog/nginx.d/conf.yaml
+
+# ── Overlay Network ───────────────────────────────────────────────────────────
+networks:
+  app-net:
+    driver: overlay

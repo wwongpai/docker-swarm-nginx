@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  JSON log format with Datadog trace/span ID correlation.
+  dd-java-agent automatically injects dd.trace_id and dd.span_id into SLF4J MDC.
+-->
+<configuration>
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>{"timestamp":"%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}","level":"%level","service":"%X{dd.service:-springboot-nginx-demo}","env":"%X{dd.env:-}","version":"%X{dd.version:-}","dd.trace_id":"%X{dd.trace_id:-}","dd.span_id":"%X{dd.span_id:-}","logger":"%logger{36}","message":"%msg"}%n</pattern>
+    </encoder>
+  </appender>
+
+  <root level="INFO">
+    <appender-ref ref="STDOUT"/>
+  </root>
+</configuration>

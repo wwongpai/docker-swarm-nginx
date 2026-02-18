@@ -1,0 +1,8 @@
+## Datadog nginx integration check
+## Scrapes nginx stub_status for connection/request metrics.
+## This file is mounted into the Datadog agent container via Docker Swarm configs.
+
+init_config:
+
+instances:
+  - nginx_status_url: http://nginx-gateway/nginx_status
